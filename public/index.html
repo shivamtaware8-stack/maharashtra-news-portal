@@ -16,7 +16,7 @@
   </div>
 
   <header class="header">
-    <a class="logo" href="#">
+    <a class="logo" href="#home">
       <span class="logo-icon">म</span>
       <span>Maha<span class="logo-green">Update</span>
         <small>महाराष्ट्राची माहिती, एका ठिकाणी</small>
@@ -30,6 +30,7 @@
         <option value="hi">हिंदी</option>
         <option value="en">English</option>
       </select>
+      <a class="account-nav-btn" href="#account">Login / Register</a>
     </div>
   </header>
 
@@ -41,9 +42,11 @@
     <a href="#gr" data-i18n="gr">शासन निर्णय</a>
     <a href="#jobs" data-i18n="jobs">सरकारी भरती</a>
     <a href="#weather" data-i18n="weather">हवामान</a>
+    <a href="#about" data-i18n="aboutNav">आमच्याबद्दल</a>
   </nav>
 
   <main id="home" class="container">
+
     <div class="breaking">
       <span class="breaking-label" data-i18n="breaking">महत्त्वाचे अपडेट्स</span>
       <span data-i18n="breakingText">महाराष्ट्रातील बातम्या आणि सरकारी माहिती आता एकाच ठिकाणी</span>
@@ -56,6 +59,7 @@
         <p data-i18n="intro">ताज्या बातम्या, सरकारी योजना, शेतीविषयक अपडेट्स आणि हवामानाची माहिती मिळवा.</p>
         <a class="primary-btn" href="#news" data-i18n="explore">बातम्या पाहा →</a>
       </div>
+
       <div class="hero-art" aria-hidden="true">
         <div class="sun"></div>
         <div class="hero-symbol">महा<br>Update</div>
@@ -63,6 +67,114 @@
       </div>
     </section>
 
+    <!-- Login and Registration -->
+    <section class="section account-section" id="account">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">YOUR ACCOUNT</span>
+          <h2>Login / Register</h2>
+        </div>
+        <span class="section-note">तुमचे MahaUpdate खाते</span>
+      </div>
+
+      <!-- Logged-in user information -->
+      <div id="account-user" class="account-user" hidden>
+        <div class="account-avatar" aria-hidden="true">👤</div>
+        <div class="account-user-details">
+          <h3>नमस्कार, <span id="account-user-name"></span>!</h3>
+          <p id="account-user-email"></p>
+          <p>तुम्ही MahaUpdate मध्ये लॉगिन केले आहे.</p>
+        </div>
+        <button type="button" id="logout-btn" class="account-button secondary-button">
+          Logout
+        </button>
+      </div>
+
+      <div id="account-forms" class="account-grid">
+        <!-- Login form -->
+        <div class="account-card">
+          <h3>🔐 Login</h3>
+          <p>तुमचे खाते असल्यास येथे Login करा.</p>
+
+          <form id="login-form" autocomplete="on">
+            <label for="login-email">ईमेल पत्ता</label>
+            <input
+              type="email"
+              id="login-email"
+              name="email"
+              placeholder="example@email.com"
+              autocomplete="email"
+              required
+            >
+
+            <label for="login-password">पासवर्ड</label>
+            <input
+              type="password"
+              id="login-password"
+              name="password"
+              placeholder="तुमचा पासवर्ड"
+              autocomplete="current-password"
+              required
+            >
+
+            <button type="submit" class="account-button">Login करा</button>
+            <p id="login-message" class="account-message" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+
+        <!-- Registration form -->
+        <div class="account-card">
+          <h3>📝 नवीन खाते तयार करा</h3>
+          <p>MahaUpdate वर नवीन खाते उघडा.</p>
+
+          <form id="register-form" autocomplete="on">
+            <label for="register-name">पूर्ण नाव</label>
+            <input
+              type="text"
+              id="register-name"
+              name="name"
+              placeholder="तुमचे पूर्ण नाव"
+              autocomplete="name"
+              minlength="2"
+              maxlength="80"
+              required
+            >
+
+            <label for="register-email">ईमेल पत्ता</label>
+            <input
+              type="email"
+              id="register-email"
+              name="email"
+              placeholder="example@email.com"
+              autocomplete="email"
+              maxlength="254"
+              required
+            >
+
+            <label for="register-password">पासवर्ड</label>
+            <input
+              type="password"
+              id="register-password"
+              name="password"
+              placeholder="किमान 8 अक्षरे"
+              autocomplete="new-password"
+              minlength="8"
+              maxlength="128"
+              required
+            >
+
+            <button type="submit" class="account-button">Register करा</button>
+            <p id="register-message" class="account-message" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </div>
+
+      <p class="account-security-note">
+        तुमचा पासवर्ड इतर कोणाशीही शेअर करू नका.
+      </p>
+    </section>
+
+    <!-- News -->
     <section class="section" id="news">
       <div class="section-heading">
         <div>
@@ -71,25 +183,26 @@
         </div>
         <span class="section-note" id="news-status">माहिती लोड होत आहे...</span>
       </div>
-      ```
-  <div class="news-filters">
-    <label for="news-category">Select News Category:</label>
-    <select id="news-category">
-      <option value="all">All News</option>
-      <option value="politics">Politics</option>
-      <option value="crime">Crime</option>
-      <option value="agriculture">Agriculture</option>
-      <option value="education">Education</option>
-      <option value="jobs">Jobs & Recruitment</option>
-      <option value="schemes">Government Schemes</option>
-      <option value="gr">Government Resolutions (GR)</option>
-      <option value="sports">Sports</option>
-      <option value="entertainment">Entertainment</option>
-      <option value="business">Business</option>
-      <option value="weather">Weather</option>
-      <option value="district">District News</option>
-    </select>
-  </div>
+
+      <div class="news-filters">
+        <label for="news-category">Select News Category:</label>
+        <select id="news-category">
+          <option value="all">All News</option>
+          <option value="politics">Politics</option>
+          <option value="crime">Crime</option>
+          <option value="agriculture">Agriculture</option>
+          <option value="education">Education</option>
+          <option value="jobs">Jobs &amp; Recruitment</option>
+          <option value="schemes">Government Schemes</option>
+          <option value="gr">Government Resolutions (GR)</option>
+          <option value="sports">Sports</option>
+          <option value="entertainment">Entertainment</option>
+          <option value="business">Business</option>
+          <option value="weather">Weather</option>
+          <option value="district">District News</option>
+        </select>
+      </div>
+
       <div id="news-grid" class="news-grid">
         <article class="news-card">
           <div class="card-image news-image">📰</div>
@@ -99,6 +212,7 @@
             <p>लवकरच उपलब्ध अधिकृत स्रोतांमधील बातम्या येथे दिसतील.</p>
           </div>
         </article>
+
         <article class="news-card">
           <div class="card-image farm-image">🌱</div>
           <div class="card-content">
@@ -107,6 +221,7 @@
             <p>कृषी योजना आणि अधिकृत सूचनांसाठी हे विभाग पाहा.</p>
           </div>
         </article>
+
         <article class="news-card">
           <div class="card-image scheme-image">🏛️</div>
           <div class="card-content">
@@ -118,6 +233,7 @@
       </div>
     </section>
 
+    <!-- Government Schemes -->
     <section class="section" id="schemes">
       <div class="section-heading">
         <div>
@@ -125,22 +241,39 @@
           <h2 data-i18n="schemeTitle">सरकारी योजनांची माहिती</h2>
         </div>
       </div>
+
       <div class="service-grid">
         <a class="service-card" href="https://mahadbt.maharashtra.gov.in/" target="_blank" rel="noopener noreferrer">
-          <span>🌾</span><h3 data-i18n="farmScheme">शेतकरी योजना</h3><p data-i18n="farmDesc">कृषी अनुदान आणि DBT</p><b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
+          <span>🌾</span>
+          <h3 data-i18n="farmScheme">शेतकरी योजना</h3>
+          <p data-i18n="farmDesc">कृषी अनुदान आणि DBT</p>
+          <b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
         </a>
+
         <a class="service-card" href="https://www.myscheme.gov.in/" target="_blank" rel="noopener noreferrer">
-          <span>🏛️</span><h3 data-i18n="allSchemes">सर्व सरकारी योजना</h3><p data-i18n="allDesc">पात्रता आणि योजनांची माहिती</p><b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
+          <span>🏛️</span>
+          <h3 data-i18n="allSchemes">सर्व सरकारी योजना</h3>
+          <p data-i18n="allDesc">पात्रता आणि योजनांची माहिती</p>
+          <b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
         </a>
+
         <a class="service-card" href="https://dgipr.maharashtra.gov.in/" target="_blank" rel="noopener noreferrer">
-          <span>📄</span><h3 data-i18n="grTitle">शासन निर्णय आणि बातम्या</h3><p data-i18n="grDesc">शासनाच्या अधिकृत सूचना</p><b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
+          <span>📄</span>
+          <h3 data-i18n="grTitle">शासन निर्णय आणि बातम्या</h3>
+          <p data-i18n="grDesc">शासनाच्या अधिकृत सूचना</p>
+          <b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
         </a>
+
         <a class="service-card" href="https://www.pib.gov.in/" target="_blank" rel="noopener noreferrer">
-          <span>📢</span><h3 data-i18n="nationalNews">केंद्र सरकारी बातम्या</h3><p data-i18n="nationalDesc">केंद्र शासनाचे अपडेट्स</p><b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
+          <span>📢</span>
+          <h3 data-i18n="nationalNews">केंद्र सरकारी बातम्या</h3>
+          <p data-i18n="nationalDesc">केंद्र शासनाचे अपडेट्स</p>
+          <b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
         </a>
       </div>
     </section>
 
+    <!-- Agriculture -->
     <section class="section" id="agriculture">
       <div class="section-heading">
         <div>
@@ -148,6 +281,7 @@
           <h2 data-i18n="agriTitle">शेतीविषयक अपडेट्स</h2>
         </div>
       </div>
+
       <div class="info-panel">
         <span class="panel-icon">🌱</span>
         <div>
@@ -158,6 +292,7 @@
       </div>
     </section>
 
+    <!-- Government Resolutions -->
     <section class="section" id="gr">
       <div class="section-heading">
         <div>
@@ -165,6 +300,7 @@
           <h2 data-i18n="grSectionTitle">शासन निर्णय (GR)</h2>
         </div>
       </div>
+
       <div class="info-panel">
         <span class="panel-icon">📑</span>
         <div>
@@ -175,6 +311,7 @@
       </div>
     </section>
 
+    <!-- Government Jobs -->
     <section class="section" id="jobs">
       <div class="section-heading">
         <div>
@@ -182,16 +319,55 @@
           <h2 data-i18n="jobsTitle">सरकारी भरती आणि रोजगार</h2>
         </div>
       </div>
+
       <div class="service-grid">
         <a class="service-card" href="https://www.maharashtra.gov.in/" target="_blank" rel="noopener noreferrer">
-          <span>💼</span><h3 data-i18n="stateJobs">महाराष्ट्र शासन</h3><p data-i18n="stateJobsDesc">शासकीय सूचना आणि भरती</p><b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
+          <span>💼</span>
+          <h3 data-i18n="stateJobs">महाराष्ट्र शासन</h3>
+          <p data-i18n="stateJobsDesc">शासकीय सूचना आणि भरती</p>
+          <b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
         </a>
+
         <a class="service-card" href="https://www.ncs.gov.in/" target="_blank" rel="noopener noreferrer">
-          <span>🎯</span><h3 data-i18n="career">National Career Service</h3><p data-i18n="careerDesc">नोकरी आणि करिअर सेवा</p><b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
+          <span>🎯</span>
+          <h3 data-i18n="career">National Career Service</h3>
+          <p data-i18n="careerDesc">नोकरी आणि करिअर सेवा</p>
+          <b data-i18n="officialLink">अधिकृत वेबसाइट ↗</b>
         </a>
+      </div>
+
+      <div class="recruitment-tools">
+        <h3>🔎 सरकारी भरती शोधा</h3>
+
+        <input
+          type="search"
+          id="job-search"
+          placeholder="भरतीचे नाव किंवा विभाग शोधा..."
+          aria-label="सरकारी भरती शोधा"
+        >
+
+        <select id="job-department" aria-label="विभाग निवडा">
+          <option value="">सर्व विभाग</option>
+          <option value="police">पोलीस</option>
+          <option value="health">आरोग्य</option>
+          <option value="education">शिक्षण</option>
+          <option value="other">इतर</option>
+        </select>
+
+        <p id="job-status" role="status">
+          अधिकृत भरती माहिती लोड होत आहे...
+        </p>
+
+        <div id="recruitment-list" class="recruitment-list"></div>
+
+        <p class="recruitment-note">
+          सूचना: अर्जाची तारीख, पात्रता आणि पदांची संख्या अधिकृत जाहिरातीत
+          तपासा. अंतिम निर्णय संबंधित भरती विभागाचा असेल.
+        </p>
       </div>
     </section>
 
+    <!-- Weather -->
     <section class="section" id="weather">
       <div class="section-heading">
         <div>
@@ -199,21 +375,34 @@
           <h2 data-i18n="weatherTitle">आजचे हवामान</h2>
         </div>
       </div>
+
       <div class="weather-panel">
         <div>
           <span class="weather-icon">🌤️</span>
           <h3 id="weather-city">नाशिक</h3>
           <p id="weather-description">हवामान लोड होत आहे...</p>
         </div>
+
         <div class="temperature" id="temperature">--°C</div>
+
         <div class="weather-details">
-          <div><span data-i18n="wind">वाऱ्याचा वेग</span><b id="wind">--</b></div>
-          <div><span data-i18n="humidity">आर्द्रता</span><b id="humidity">--</b></div>
+          <div>
+            <span data-i18n="wind">वाऱ्याचा वेग</span>
+            <b id="wind">--</b>
+          </div>
+          <div>
+            <span data-i18n="humidity">आर्द्रता</span>
+            <b id="humidity">--</b>
+          </div>
         </div>
-        <p class="weather-note" data-i18n="weatherNote">हवामान माहिती Open-Meteo सेवेतून उपलब्ध झाल्यास येथे दिसेल.</p>
+
+        <p class="weather-note" data-i18n="weatherNote">
+          हवामान माहिती Open-Meteo सेवेतून उपलब्ध झाल्यास येथे दिसेल.
+        </p>
       </div>
     </section>
 
+    <!-- District News -->
     <section class="section" id="districts">
       <div class="section-heading">
         <div>
@@ -221,7 +410,9 @@
           <h2 data-i18n="districtTitle">जिल्हानिहाय बातम्या</h2>
         </div>
       </div>
+
       <label for="district" data-i18n="chooseDistrict">जिल्हा निवडा</label>
+
       <select id="district" class="district-select">
         <option value="Nashik">नाशिक</option>
         <option value="Pune">पुणे</option>
@@ -259,13 +450,50 @@
         <option value="Dharashiv">धाराशिव</option>
         <option value="Sangli">सांगली</option>
       </select>
-      <p id="district-message" class="district-message">निवडलेल्या जिल्ह्याचे Live News जोडण्याची सुविधा पुढील टप्प्यात येईल.</p>
+
+      <p id="district-message" class="district-message">
+        निवडलेल्या जिल्ह्याचे Live News जोडण्याची सुविधा पुढील टप्प्यात येईल.
+      </p>
     </section>
+
+    <!-- About -->
+    <section class="section" id="about">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">ABOUT MAHAUPDATE</span>
+          <h2>आमच्याबद्दल</h2>
+        </div>
+      </div>
+
+      <div class="info-panel">
+        <span class="panel-icon">📰</span>
+        <div>
+          <h3>MahaUpdate — महाराष्ट्राची माहिती, एका ठिकाणी</h3>
+          <p>
+            महाराष्ट्रातील बातम्या, सरकारी योजना, शासन निर्णय, सरकारी भरती
+            आणि हवामानाची माहिती एकाच ठिकाणी उपलब्ध करून देणे हा आमचा उद्देश आहे.
+          </p>
+          <p>
+            महत्त्वाचे निर्णय, पात्रता आणि अर्जाच्या तारखा संबंधित अधिकृत
+            वेबसाइटवरून तपासून घ्या.
+          </p>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <footer class="footer">
-    <a class="logo footer-logo" href="#"><span class="logo-icon">म</span>MahaUpdate</a>
-    <p data-i18n="footerText">माहिती अधिकृत स्रोतांवरून पडताळून घ्या. योजनांच्या अटी संबंधित सरकारी विभाग ठरवतात.</p>
+    <a class="logo footer-logo" href="#home">
+      <span class="logo-icon">म</span>MahaUpdate
+    </a>
+
+    <p>Founder: Shivam Santosh Taware</p>
+
+    <p data-i18n="footerText">
+      माहिती अधिकृत स्रोतांवरून पडताळून घ्या. योजनांच्या अटी संबंधित सरकारी विभाग ठरवतात.
+    </p>
+
     <p>© <span id="year"></span> MahaUpdate</p>
   </footer>
 

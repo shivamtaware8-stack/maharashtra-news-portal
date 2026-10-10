@@ -1,26 +1,388 @@
-
 const express = require("express");
 const path = require("path");
 const Parser = require("rss-parser");
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
+const session = require("express-session");
+const MongoStore = require("connect-mongo").default;
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
+// ==================== MIDDLEWARE ====================
 
-// Health check
+app.disable("x-powered-by");
+app.use(express.json({ limit: "20kb" }));
+app.use(express.urlencoded({ extended: false }));
+
+app.use(
+  express.static(path.join(__dirname, "public"))
+);
+
+// ==================== USER MODEL ====================
+
+const userSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 2,
+      maxlength: 80
+    },
+
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+      maxlength: 254
+    },
+
+    password: {
+      type: String,
+      required: true,
+      select: false
+    }
+  },
+  {
+    timestamps: true
+  }
+);
+
+const User =
+  mongoose.models.User ||
+  mongoose.model("User", userSchema);
+
+// ==================== SESSION CONFIGURATION ====================
+
+if (!process.env.SESSION_SECRET) {
+  console.error("SESSION_SECRET is missing from .env");
+  process.exit(1);
+}
+
+app.use(
+  session({
+    name: "mahaupdate.sid",
+    secret: process.env.SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+
+    store: MongoStore.create({
+      mongoUrl: process.env.MONGODB_URI,
+      collectionName: "sessions",
+      ttl: 7 * 24 * 60 * 60
+    }),
+
+    cookie: {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    }
+  })
+);
+
+// ==================== AUTH HELPERS ====================
+
+function getSafeUser(user) {
+  return {
+    id: user._id.toString(),
+    name: user.name,
+    email: user.email
+  };
+}
+
+function requireLogin(req, res, next) {
+  if (!req.session.userId) {
+    return res.status(401).json({
+      success: false,
+      message: "Please log in first."
+    });
+  }
+
+  next();
+}
+
+// ==================== AUTH API ====================
+
+// Register
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const name =
+      typeof req.body.name === "string"
+        ? req.body.name.trim()
+        : "";
+
+    const email =
+      typeof req.body.email === "string"
+        ? req.body.email.trim().toLowerCase()
+        : "";
+
+    const password =
+      typeof req.body.password === "string"
+        ? req.body.password
+        : "";
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email and password are required."
+      });
+    }
+
+    if (name.length < 2 || name.length > 80) {
+      return res.status(400).json({
+        success: false,
+        message: "Name must be between 2 and 80 characters."
+      });
+    }
+
+    if (
+      email.length > 254 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Please enter a valid email address."
+      });
+    }
+
+    if (password.length < 8 || password.length > 72) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be 8 to 72 characters long."
+      });
+    }
+
+    const existingUser = await User.findOne({ email })
+      .select("_id")
+      .lean();
+
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists."
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const user = await User.create({
+      name,
+      email,
+      password: hashedPassword
+    });
+
+    // Regenerate the session after account creation.
+    req.session.regenerate((sessionError) => {
+      if (sessionError) {
+        console.error("Session error:", sessionError.message);
+
+        return res.status(500).json({
+          success: false,
+          message: "Account created, but login failed. Please log in."
+        });
+      }
+
+      req.session.userId = user._id.toString();
+
+      req.session.save((saveError) => {
+        if (saveError) {
+          console.error("Session save error:", saveError.message);
+
+          return res.status(500).json({
+            success: false,
+            message: "Account created, but login failed. Please log in."
+          });
+        }
+
+        return res.status(201).json({
+          success: true,
+          message: "Registration successful.",
+          user: getSafeUser(user)
+        });
+      });
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists."
+      });
+    }
+
+    console.error("Registration error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Registration failed. Please try again."
+    });
+  }
+});
+
+// Login
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const email =
+      typeof req.body.email === "string"
+        ? req.body.email.trim().toLowerCase()
+        : "";
+
+    const password =
+      typeof req.body.password === "string"
+        ? req.body.password
+        : "";
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required."
+      });
+    }
+
+    const user = await User.findOne({ email })
+      .select("+password");
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password."
+      });
+    }
+
+    const passwordMatches = await bcrypt.compare(
+      password,
+      user.password
+    );
+
+    if (!passwordMatches) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password."
+      });
+    }
+
+    // Regenerate the session to reduce session-fixation risk.
+    req.session.regenerate((sessionError) => {
+      if (sessionError) {
+        console.error("Session error:", sessionError.message);
+
+        return res.status(500).json({
+          success: false,
+          message: "Unable to log in. Please try again."
+        });
+      }
+
+      req.session.userId = user._id.toString();
+
+      req.session.save((saveError) => {
+        if (saveError) {
+          console.error("Session save error:", saveError.message);
+
+          return res.status(500).json({
+            success: false,
+            message: "Unable to log in. Please try again."
+          });
+        }
+
+        return res.json({
+          success: true,
+          message: "Login successful.",
+          user: getSafeUser(user)
+        });
+      });
+    });
+  } catch (error) {
+    console.error("Login error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Login failed. Please try again."
+    });
+  }
+});
+
+// Get current logged-in user
+app.get("/api/auth/me", requireLogin, async (req, res) => {
+  try {
+    const user = await User.findById(req.session.userId)
+      .select("name email");
+
+    if (!user) {
+      return req.session.destroy(() => {
+        res.status(401).json({
+          success: false,
+          message: "User account not found. Please log in again."
+        });
+      });
+    }
+
+    return res.json({
+      success: true,
+      user: getSafeUser(user)
+    });
+  } catch (error) {
+    console.error("User lookup error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load account details."
+    });
+  }
+});
+
+// Logout
+app.post("/api/auth/logout", (req, res) => {
+  if (!req.session) {
+    return res.json({
+      success: true,
+      message: "Logged out."
+    });
+  }
+
+  req.session.destroy((error) => {
+    if (error) {
+      console.error("Logout error:", error.message);
+
+      return res.status(500).json({
+        success: false,
+        message: "Unable to log out. Please try again."
+      });
+    }
+
+    res.clearCookie("mahaupdate.sid", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax"
+    });
+
+    return res.json({
+      success: true,
+      message: "Logout successful."
+    });
+  });
+});
+
+// ==================== HEALTH CHECK ====================
+
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,
     website: "MahaUpdate",
     message: "Website server is running!",
+    database:
+      mongoose.connection.readyState === 1
+        ? "connected"
+        : "disconnected",
     languages: ["Marathi", "Hindi", "English"]
   });
 });
 
-// News API test
+// ==================== NEWS API TEST ====================
+
 app.get("/api/test-news", (req, res) => {
   res.json({
     success: true,
@@ -28,7 +390,8 @@ app.get("/api/test-news", (req, res) => {
   });
 });
 
-// News categories in Marathi, Hindi and English
+// ==================== NEWS CATEGORIES ====================
+
 const newsCategories = {
   all: {
     en: "Maharashtra latest news",
@@ -82,7 +445,7 @@ const newsCategories = {
   },
   sports: {
     en: "Maharashtra sports news",
-    mr: "Maharashtra क्रीडा बातम्या",
+    mr: "महाराष्ट्र क्रीडा बातम्या",
     hi: "महाराष्ट्र खेल समाचार"
   },
   entertainment: {
@@ -107,14 +470,16 @@ const newsCategories = {
   }
 };
 
-// Google News language settings
+// ==================== LANGUAGE SETTINGS ====================
+
 const languageSettings = {
   en: { hl: "en-IN", ceid: "IN:en" },
   mr: { hl: "mr", ceid: "IN:mr" },
   hi: { hl: "hi", ceid: "IN:hi" }
 };
 
-// Categories API
+// ==================== CATEGORIES API ====================
+
 app.get("/api/categories", (req, res) => {
   const categories = Object.keys(newsCategories).map((id) => ({
     id,
@@ -124,7 +489,8 @@ app.get("/api/categories", (req, res) => {
   res.json(categories);
 });
 
-// RSS parser
+// ==================== RSS PARSER ====================
+
 const parser = new Parser({
   timeout: 20000,
   headers: {
@@ -132,7 +498,8 @@ const parser = new Parser({
   }
 });
 
-// Fetch news by category and language
+// ==================== FETCH NEWS ====================
+
 app.get("/api/news", async (req, res) => {
   try {
     const requestedCategory = String(
@@ -199,17 +566,35 @@ app.get("/api/news", async (req, res) => {
       news
     });
   } catch (error) {
-    console.error("News API error:", error);
+    console.error("News API error:", error.message);
 
     res.status(500).json({
       success: false,
-      message: "Unable to load news from the news provider.",
-      error: error.message
+      message: "Unable to load news from the news provider."
     });
   }
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`MahaUpdate running at http://localhost:${PORT}`);
-});
+// ==================== START SERVER ====================
+
+async function startServer() {
+  if (!process.env.MONGODB_URI) {
+    console.error("MONGODB_URI is missing from .env");
+    process.exit(1);
+  }
+
+  try {
+    await mongoose.connect(process.env.MONGODB_URI);
+
+    console.log("MongoDB connected successfully");
+
+    app.listen(PORT, () => {
+      console.log(`MahaUpdate running at http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error("MongoDB connection failed:", error.message);
+    process.exit(1);
+  }
+}
+
+startServer();

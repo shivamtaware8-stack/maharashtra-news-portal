@@ -461,3 +461,242 @@ updateDistrictMessage();
 checkBackend();
 loadWeather();
 loadNews();
+// MahaUpdate: Government Recruitment Links
+(() => {
+  const list = document.getElementById("recruitment-list");
+  const search = document.getElementById("job-search");
+  const department = document.getElementById("job-department");
+  const status = document.getElementById("job-status");
+
+  if (!list || !search || !department || !status) return;
+
+  const officialLinks = [
+    {
+      title: "महाराष्ट्र शासन",
+      department: "other",
+      description: "शासकीय सूचना आणि अधिकृत भरती अपडेट्स तपासा.",
+      url: "https://www.maharashtra.gov.in/"
+    },
+    {
+      title: "महाराष्ट्र पोलीस",
+      department: "police",
+      description: "पोलीस भरतीची जाहिरात आणि पात्रता अधिकृत पोर्टलवर तपासा.",
+      url: "https://www.mahapolice.gov.in/"
+    },
+    {
+      title: "महाराष्ट्र सार्वजनिक आरोग्य विभाग",
+      department: "health",
+      description: "आरोग्य विभागातील भरतीविषयी अधिकृत सूचना तपासा.",
+      url: "https://phd.maharashtra.gov.in/"
+    },
+    {
+      title: "National Career Service",
+      department: "other",
+      description: "केंद्र सरकारची रोजगार सेवा आणि नोकरीविषयक माहिती.",
+      url: "https://www.ncs.gov.in/"
+    },
+    {
+      title: "महाराष्ट्र राज्य माध्यमिक व उच्च माध्यमिक शिक्षण मंडळ",
+      department: "education",
+      description: "शिक्षण मंडळाच्या अधिकृत सूचना तपासा.",
+      url: "https://mahahsscboard.in/"
+    }
+  ];
+
+  function renderRecruitments() {
+    const query = search.value.trim().toLocaleLowerCase();
+    const selectedDepartment = department.value;
+
+    const results = officialLinks.filter((job) => {
+      const matchesSearch =
+        job.title.toLocaleLowerCase().includes(query) ||
+        job.description.toLocaleLowerCase().includes(query);
+
+      const matchesDepartment =
+        !selectedDepartment || job.department === selectedDepartment;
+
+      return matchesSearch && matchesDepartment;
+    });
+
+    list.replaceChildren();
+
+    results.forEach((job) => {
+      const card = document.createElement("article");
+      card.className = "recruitment-card";
+
+      const title = document.createElement("h4");
+      title.textContent = job.title;
+
+      const description = document.createElement("p");
+      description.textContent = job.description;
+
+      const note = document.createElement("p");
+      note.textContent =
+        "पदसंख्या व अर्जाची अंतिम तारीख: अधिकृत जाहिरातीत तपासा.";
+
+      const link = document.createElement("a");
+      link.href = job.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = "अधिकृत वेबसाइट उघडा ↗";
+
+      card.append(title, description, note, link);
+      list.appendChild(card);
+    });
+
+    status.textContent = results.length
+      ? `${results.length} अधिकृत पोर्टल्स आढळले. प्रत्यक्ष रिक्त पदे वेबसाइटवर तपासा.`
+      : "तुमच्या शोधानुसार कोणतेही पोर्टल आढळले नाही.";
+  }
+
+  search.addEventListener("input", renderRecruitments);
+  department.addEventListener("change", renderRecruitments);
+
+  renderRecruitments();
+})();
+
+/* MahaUpdate Login / Register / Logout */
+
+(() => {
+  const loginForm = document.getElementById("login-form");
+  const registerForm = document.getElementById("register-form");
+  const logoutButton = document.getElementById("logout-btn");
+
+  const accountForms = document.getElementById("account-forms");
+  const accountUser = document.getElementById("account-user");
+  const userName = document.getElementById("account-user-name");
+  const userEmail = document.getElementById("account-user-email");
+
+  const loginMessage = document.getElementById("login-message");
+  const registerMessage = document.getElementById("register-message");
+
+  if (!loginForm || !registerForm) return;
+
+  function showMessage(element, message, success = false) {
+    if (!element) return;
+    element.textContent = message;
+    element.style.color = success ? "#17864b" : "#d93636";
+  }
+
+  function showUser(user) {
+    accountForms.hidden = Boolean(user);
+    accountUser.hidden = !user;
+
+    if (user) {
+      userName.textContent = user.name || "";
+      userEmail.textContent = user.email || "";
+    }
+  }
+
+  async function apiRequest(url, method = "GET", body = null) {
+    const options = {
+      method,
+      credentials: "same-origin",
+      headers: {}
+    };
+
+    if (body !== null) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(body);
+    }
+
+    const response = await fetch(url, options);
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok || data.success === false) {
+      throw new Error(
+        data.message || data.error || "काहीतरी चुकले. पुन्हा प्रयत्न करा."
+      );
+    }
+
+    return data;
+  }
+
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    showMessage(loginMessage, "Login होत आहे...", true);
+
+    const form = new FormData(loginForm);
+
+    try {
+      const data = await apiRequest("/api/auth/login", "POST", {
+        email: form.get("email"),
+        password: form.get("password")
+      });
+
+      if (!data.user) {
+        throw new Error("Server कडून user माहिती मिळाली नाही.");
+      }
+
+      showUser(data.user);
+      loginForm.reset();
+      showMessage(
+        loginMessage,
+        data.message || "Login यशस्वी झाले!",
+        true
+      );
+    } catch (error) {
+      showMessage(loginMessage, error.message);
+    }
+  });
+
+  registerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    showMessage(registerMessage, "नवीन खाते तयार होत आहे...", true);
+
+    const form = new FormData(registerForm);
+
+    try {
+      const data = await apiRequest("/api/auth/register", "POST", {
+        name: form.get("name"),
+        email: form.get("email"),
+        password: form.get("password")
+      });
+
+      if (!data.user) {
+        throw new Error("Server कडून user माहिती मिळाली नाही.");
+      }
+
+      showUser(data.user);
+      registerForm.reset();
+
+      showMessage(
+        registerMessage,
+        data.message || "तुमचे खाते यशस्वीपणे तयार झाले!",
+        true
+      );
+    } catch (error) {
+      showMessage(registerMessage, error.message);
+    }
+  });
+
+  if (logoutButton) {
+    logoutButton.addEventListener("click", async () => {
+      try {
+        await apiRequest("/api/auth/logout", "POST", {});
+        showUser(null);
+        showMessage(loginMessage, "Logout झाले.", true);
+      } catch (error) {
+        showMessage(loginMessage, error.message);
+      }
+    });
+  }
+
+  async function checkExistingLogin() {
+    try {
+      const data = await apiRequest("/api/auth/me");
+
+      if (data.user) {
+        showUser(data.user);
+      } else {
+        showUser(null);
+      }
+    } catch {
+      showUser(null);
+    }
+  }
+
+  checkExistingLogin();
+})();
