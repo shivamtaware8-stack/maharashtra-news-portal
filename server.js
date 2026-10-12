@@ -4,7 +4,7 @@ const Parser = require("rss-parser");
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const session = require("express-session");
-const MongoStore = require("connect-mongo").default;
+const MongoStore = require("connect-mongo").MongoStore;
 require("dotenv").config();
 
 const app = express();
@@ -57,33 +57,127 @@ const User =
   mongoose.model("User", userSchema);
 
 // ==================== SESSION CONFIGURATION ====================
+// NOTE: Never exit the process at import time. On Vercel (serverless) a
+// top-level process.exit() turns into a generic HTTP 500 with no useful log.
+// Validate env vars, log a clear message (never the secret value), and keep
+// public routes (/api/health, /api/news, frontend) working even when the DB
+// is not configured. DB-backed routes return 503 with a clear message.
 
-if (!process.env.SESSION_SECRET) {
-  console.error("SESSION_SECRET is missing from .env");
-  process.exit(1);
+const hasSessionSecret = Boolean(process.env.SESSION_SECRET);
+const hasMongoUri = Boolean(process.env.MONGODB_URI);
+
+if (!hasSessionSecret) {
+  console.error(
+    "SESSION_SECRET is missing. Set it in .env (local) and in Vercel Project -> Settings -> Environment Variables (Production)."
+  );
 }
 
-app.use(
-  session({
-    name: "mahaupdate.sid",
-    secret: process.env.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
+if (!hasMongoUri) {
+  console.error(
+    "MONGODB_URI is missing. Set it in .env (local) and in Vercel Project -> Settings -> Environment Variables (Production)."
+  );
+}
 
-    store: MongoStore.create({
+app.set("trust proxy", 1);
+
+// Reuse one cached mongoose connection across serverless invocations.
+let cachedDbPromise = global.__mahaupdateDbPromise || null;
+
+function connectDb() {
+  if (mongoose.connection.readyState === 1) {
+    return Promise.resolve(mongoose);
+  }
+
+  if (!cachedDbPromise) {
+    cachedDbPromise = mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 8000
+    });
+    global.__mahaupdateDbPromise = cachedDbPromise;
+
+    cachedDbPromise.then(
+      () => console.log("MongoDB connected successfully"),
+      (error) => {
+        cachedDbPromise = null;
+        global.__mahaupdateDbPromise = null;
+        console.error("MongoDB connection failed:", error.message);
+      }
+    );
+  }
+
+  return cachedDbPromise;
+}
+
+function createSessionStore() {
+  if (!hasMongoUri) {
+    return undefined;
+  }
+
+  try {
+    // mongoUrl mode connects LAZILY (only on first session read/write),
+    // so requiring this file never opens a DB connection at import time.
+    // (An eager clientPromise here crashed the serverless function on boot.)
+    return MongoStore.create({
       mongoUrl: process.env.MONGODB_URI,
       collectionName: "sessions",
       ttl: 7 * 24 * 60 * 60
-    }),
+    });
+  } catch (error) {
+    console.error("Session store init failed:", error.message);
+    return undefined;
+  }
+}
 
-    cookie: {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    }
-  })
-);
+const sessionMiddleware = session({
+  name: "mahaupdate.sid",
+  // Fallback keeps the app bootable so /api/health explains the problem
+  // instead of crashing with HTTP 500. Production MUST set a real secret.
+  secret:
+    process.env.SESSION_SECRET || "mahaupdate-local-dev-only-change-me",
+  resave: false,
+  saveUninitialized: false,
+  proxy: true,
+
+  store: createSessionStore(),
+
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000
+  }
+});
+
+app.use(sessionMiddleware);
+
+// Block only DB-backed routes when the DB is not configured, instead of
+// crashing the whole function.
+async function ensureDb(req, res, next) {
+  if (!process.env.MONGODB_URI) {
+    return res.status(503).json({
+      success: false,
+      message: "Database is not configured (MONGODB_URI missing)."
+    });
+  }
+
+  if (!process.env.SESSION_SECRET) {
+    return res.status(500).json({
+      success: false,
+      message: "Server session is not configured (SESSION_SECRET missing)."
+    });
+  }
+
+  try {
+    await connectDb();
+    return next();
+  } catch (error) {
+    console.error("MongoDB connection failed:", error.message);
+
+    return res.status(503).json({
+      success: false,
+      message: "Database unavailable. Please try again."
+    });
+  }
+}
 
 // ==================== AUTH HELPERS ====================
 
@@ -109,7 +203,7 @@ function requireLogin(req, res, next) {
 // ==================== AUTH API ====================
 
 // Register
-app.post("/api/auth/register", async (req, res) => {
+app.post("/api/auth/register", ensureDb, async (req, res) => {
   try {
     const name =
       typeof req.body.name === "string"
@@ -224,7 +318,7 @@ app.post("/api/auth/register", async (req, res) => {
 });
 
 // Login
-app.post("/api/auth/login", async (req, res) => {
+app.post("/api/auth/login", ensureDb, async (req, res) => {
   try {
     const email =
       typeof req.body.email === "string"
@@ -306,7 +400,7 @@ app.post("/api/auth/login", async (req, res) => {
 });
 
 // Get current logged-in user
-app.get("/api/auth/me", requireLogin, async (req, res) => {
+app.get("/api/auth/me", ensureDb, requireLogin, async (req, res) => {
   try {
     const user = await User.findById(req.session.userId)
       .select("name email");
@@ -377,6 +471,12 @@ app.get("/api/health", (req, res) => {
       mongoose.connection.readyState === 1
         ? "connected"
         : "disconnected",
+    env: {
+      mongodbUri: process.env.MONGODB_URI ? "configured" : "missing",
+      sessionSecret: process.env.SESSION_SECRET
+        ? "configured"
+        : "missing"
+    },
     languages: ["Marathi", "Hindi", "English"]
   });
 });
@@ -576,17 +676,22 @@ app.get("/api/news", async (req, res) => {
 });
 
 // ==================== START SERVER ====================
+// Local: connect to MongoDB, then listen on PORT.
+// Vercel: do NOT listen; export `app` and connect lazily per request.
 
-async function startServer() {
+async function startLocalServer() {
   if (!process.env.MONGODB_URI) {
     console.error("MONGODB_URI is missing from .env");
     process.exit(1);
   }
 
-  try {
-    await mongoose.connect(process.env.MONGODB_URI);
+  if (!process.env.SESSION_SECRET) {
+    console.error("SESSION_SECRET is missing from .env");
+    process.exit(1);
+  }
 
-    console.log("MongoDB connected successfully");
+  try {
+    await connectDb();
 
     app.listen(PORT, () => {
       console.log(`MahaUpdate running at http://localhost:${PORT}`);
@@ -597,4 +702,8 @@ async function startServer() {
   }
 }
 
-startServer();
+if (require.main === module) {
+  startLocalServer();
+}
+
+module.exports = app;
