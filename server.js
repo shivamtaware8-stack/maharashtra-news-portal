@@ -1,10 +1,8 @@
 const express = require("express");
 const path = require("path");
+const crypto = require("crypto");
 const Parser = require("rss-parser");
-const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
-const session = require("express-session");
-const MongoStore = require("connect-mongo").MongoStore;
 require("dotenv").config();
 
 const app = express();
@@ -20,51 +18,166 @@ app.use(
   express.static(path.join(__dirname, "public"))
 );
 
-// ==================== USER MODEL ====================
+// ==================== DEMO ACCOUNT STORE ====================
+// DEMO ONLY: MongoDB dependency has been removed from this app.
+// Accounts live in a local JSON file (data/demo-users.json) so `npm start`
+// keeps working offline. Passwords are NEVER stored in plaintext — only
+// bcrypt hashes. The Atlas database is untouched; old Atlas accounts do NOT
+// carry over to this demo store. Nothing here is a permanent account.
 
-const userSchema = new mongoose.Schema(
-  {
-    name: {
-      type: String,
-      required: true,
-      trim: true,
-      minlength: 2,
-      maxlength: 80
-    },
+const fs = require("fs");
 
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-      lowercase: true,
-      trim: true,
-      maxlength: 254
-    },
+const DEMO_DATA_DIR = path.join(__dirname, "data");
+const DEMO_USERS_FILE = path.join(DEMO_DATA_DIR, "demo-users.json");
 
-    password: {
-      type: String,
-      required: true,
-      select: false
-    }
-  },
-  {
-    timestamps: true
+function readDemoUsers() {
+  try {
+    const raw = fs.readFileSync(DEMO_USERS_FILE, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
-);
+}
 
-const User =
-  mongoose.models.User ||
-  mongoose.model("User", userSchema);
+function writeDemoUsers(users) {
+  fs.mkdirSync(DEMO_DATA_DIR, { recursive: true });
+    fs.writeFileSync(DEMO_USERS_FILE, JSON.stringify(users, null, 2), "utf8");
+}
+
+function findDemoUserByEmail(email) {
+  return readDemoUsers().find((u) => u.email === email) || null;
+}
+
+function findDemoUserById(id) {
+  return readDemoUsers().find((u) => u.id === id) || null;
+}
+
+// ==================== DEMO SESSION (SIGNED TOKEN) ====================
+// Stateless HMAC-signed token in an HttpOnly cookie. No server-side store,
+// so it works on Vercel serverless. Short-lived (24h). DEMO ONLY — not real
+// authentication. SESSION_SECRET signs the token; it is never logged.
+
+const DEMO_SESSION_COOKIE = "mahaupdate.demo";
+const DEMO_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+
+function getDemoSecret() {
+  return process.env.SESSION_SECRET || null;
+}
+
+function base64UrlEncode(input) {
+  return Buffer.from(input, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function base64UrlDecode(input) {
+  const padded = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padLength = (4 - (padded.length % 4)) % 4;
+  return Buffer.from(padded + "=".repeat(padLength), "base64").toString(
+    "utf8"
+  );
+}
+
+function signDemoToken(payloadBase64, secret) {
+  return crypto
+    .createHmac("sha256", secret)
+    .update(payloadBase64)
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function createDemoToken(user, secret) {
+  const payload = base64UrlEncode(
+    JSON.stringify({
+      sub: user.id,
+      email: user.email,
+      name: user.name,
+      exp: Date.now() + DEMO_SESSION_TTL_MS
+    })
+  );
+  const signature = signDemoToken(payload, secret);
+  return payload + "." + signature;
+}
+
+function verifyDemoToken(token, secret) {
+  if (typeof token !== "string" || !token.includes(".")) return null;
+  const [payloadBase64, signature] = token.split(".");
+  if (!payloadBase64 || !signature) return null;
+
+  const expected = signDemoToken(payloadBase64, secret);
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlDecode(payloadBase64));
+  } catch {
+    return null;
+  }
+
+  if (!payload.sub || !payload.email || !payload.exp) return null;
+  if (Date.now() > Number(payload.exp)) return null;
+  return payload;
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie || "";
+  const out = {};
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=");
+    if (index === -1) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (key) out[key] = decodeURIComponent(value);
+  }
+  return out;
+}
+
+function setDemoCookie(res, token) {
+  const parts = [
+    DEMO_SESSION_COOKIE + "=" + encodeURIComponent(token),
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=" + Math.floor(DEMO_SESSION_TTL_MS / 1000)
+  ];
+  if (process.env.NODE_ENV === "production") parts.push("Secure");
+  res.append("Set-Cookie", parts.join("; "));
+}
+
+function clearDemoCookie(res) {
+  const parts = [
+    DEMO_SESSION_COOKIE + "=;",
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0"
+  ];
+  if (process.env.NODE_ENV === "production") parts.push("Secure");
+  res.append("Set-Cookie", parts.join("; "));
+}
+
+function getDemoSession(req) {
+  const secret = getDemoSecret();
+  if (!secret) return null;
+  const cookies = parseCookies(req);
+  const token = cookies[DEMO_SESSION_COOKIE];
+  if (!token) return null;
+  return verifyDemoToken(token, secret);
+}
 
 // ==================== SESSION CONFIGURATION ====================
-// NOTE: Never exit the process at import time. On Vercel (serverless) a
-// top-level process.exit() turns into a generic HTTP 500 with no useful log.
-// Validate env vars, log a clear message (never the secret value), and keep
-// public routes (/api/health, /api/news, frontend) working even when the DB
-// is not configured. DB-backed routes return 503 with a clear message.
+// DEMO mode: SESSION_SECRET signs demo tokens (required). There is no
+// database, no session store, and no process.exit() at import time — public
+// routes (/api/health, /api/news, frontend) always work on Vercel.
 
 const hasSessionSecret = Boolean(process.env.SESSION_SECRET);
-const hasMongoUri = Boolean(process.env.MONGODB_URI);
 
 if (!hasSessionSecret) {
   console.error(
@@ -72,138 +185,59 @@ if (!hasSessionSecret) {
   );
 }
 
-if (!hasMongoUri) {
-  console.error(
-    "MONGODB_URI is missing. Set it in .env (local) and in Vercel Project -> Settings -> Environment Variables (Production)."
-  );
-}
-
 app.set("trust proxy", 1);
 
-// Reuse one cached mongoose connection across serverless invocations.
-let cachedDbPromise = global.__mahaupdateDbPromise || null;
-
-function connectDb() {
-  if (mongoose.connection.readyState === 1) {
-    return Promise.resolve(mongoose);
-  }
-
-  if (!cachedDbPromise) {
-    cachedDbPromise = mongoose.connect(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 8000
-    });
-    global.__mahaupdateDbPromise = cachedDbPromise;
-
-    cachedDbPromise.then(
-      () => console.log("MongoDB connected successfully"),
-      (error) => {
-        cachedDbPromise = null;
-        global.__mahaupdateDbPromise = null;
-        console.error("MongoDB connection failed:", error.message);
-      }
-    );
-  }
-
-  return cachedDbPromise;
-}
-
-function createSessionStore() {
-  if (!hasMongoUri) {
-    return undefined;
-  }
-
-  try {
-    // mongoUrl mode connects LAZILY (only on first session read/write),
-    // so requiring this file never opens a DB connection at import time.
-    // (An eager clientPromise here crashed the serverless function on boot.)
-    return MongoStore.create({
-      mongoUrl: process.env.MONGODB_URI,
-      collectionName: "sessions",
-      ttl: 7 * 24 * 60 * 60
-    });
-  } catch (error) {
-    console.error("Session store init failed:", error.message);
-    return undefined;
-  }
-}
-
-const sessionMiddleware = session({
-  name: "mahaupdate.sid",
-  // Fallback keeps the app bootable so /api/health explains the problem
-  // instead of crashing with HTTP 500. Production MUST set a real secret.
-  secret:
-    process.env.SESSION_SECRET || "mahaupdate-local-dev-only-change-me",
-  resave: false,
-  saveUninitialized: false,
-  proxy: true,
-
-  store: createSessionStore(),
-
-  cookie: {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 7 * 24 * 60 * 60 * 1000
-  }
-});
-
-app.use(sessionMiddleware);
-
-// Block only DB-backed routes when the DB is not configured, instead of
-// crashing the whole function.
-async function ensureDb(req, res, next) {
-  if (!process.env.MONGODB_URI) {
-    return res.status(503).json({
-      success: false,
-      message: "Database is not configured (MONGODB_URI missing)."
-    });
-  }
-
-  if (!process.env.SESSION_SECRET) {
-    return res.status(500).json({
-      success: false,
-      message: "Server session is not configured (SESSION_SECRET missing)."
-    });
-  }
-
-  try {
-    await connectDb();
-    return next();
-  } catch (error) {
-    console.error("MongoDB connection failed:", error.message);
-
-    return res.status(503).json({
-      success: false,
-      message: "Database unavailable. Please try again."
-    });
-  }
-}
+// Require SESSION_SECRET only for demo auth routes, not for public routes.
 
 // ==================== AUTH HELPERS ====================
 
 function getSafeUser(user) {
   return {
-    id: user._id.toString(),
+    id: user.id,
     name: user.name,
     email: user.email
   };
 }
 
-function requireLogin(req, res, next) {
-  if (!req.session.userId) {
-    return res.status(401).json({
+function requireDemoSecret(req, res, next) {
+  if (!getDemoSecret()) {
+    return res.status(500).json({
       success: false,
-      message: "Please log in first."
+      message: "Demo session is not configured (SESSION_SECRET missing)."
+    });
+  }
+  return next();
+}
+
+function requireLogin(req, res, next) {
+  const secret = getDemoSecret();
+  if (!secret) {
+    return res.status(500).json({
+      success: false,
+      message: "Demo session is not configured (SESSION_SECRET missing)."
     });
   }
 
-  next();
+  const payload = getDemoSession(req);
+  if (!payload) {
+    return res.status(401).json({
+      success: false,
+      message: "Please log in first (demo session expired or invalid)."
+    });
+  }
+
+  req.demoUser = payload;
+  return next();
 }
 
-// ==================== AUTH API ====================
+// ==================== AUTH API (DEMO ONLY) ====================
+// DEMO login/register: same routes, same validation, bcrypt hashing.
+// Register stores a bcrypt hash in data/demo-users.json (local/temporary).
+// NO plaintext passwords anywhere. Old Atlas accounts are untouched and do
+// NOT work here — a fresh demo registration is required.
 
 // Register
-app.post("/api/auth/register", ensureDb, async (req, res) => {
+app.post("/api/auth/register", requireDemoSecret, async (req, res) => {
   try {
     const name =
       typeof req.body.name === "string"
@@ -251,74 +285,63 @@ app.post("/api/auth/register", ensureDb, async (req, res) => {
       });
     }
 
-    const existingUser = await User.findOne({ email })
-      .select("_id")
-      .lean();
-
-    if (existingUser) {
+    if (findDemoUserByEmail(email)) {
       return res.status(409).json({
         success: false,
-        message: "An account with this email already exists."
+        message: "A demo account with this email already exists."
       });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    const user = await User.create({
+    const user = {
+      id: crypto.randomUUID(),
       name,
       email,
-      password: hashedPassword
-    });
+      password: hashedPassword,
+      createdAt: new Date().toISOString()
+    };
 
-    // Regenerate the session after account creation.
-    req.session.regenerate((sessionError) => {
-      if (sessionError) {
-        console.error("Session error:", sessionError.message);
-
-        return res.status(500).json({
-          success: false,
-          message: "Account created, but login failed. Please log in."
-        });
-      }
-
-      req.session.userId = user._id.toString();
-
-      req.session.save((saveError) => {
-        if (saveError) {
-          console.error("Session save error:", saveError.message);
-
-          return res.status(500).json({
-            success: false,
-            message: "Account created, but login failed. Please log in."
-          });
-        }
-
-        return res.status(201).json({
-          success: true,
-          message: "Registration successful.",
-          user: getSafeUser(user)
-        });
-      });
-    });
-  } catch (error) {
-    if (error.code === 11000) {
-      return res.status(409).json({
+    // IMPORTANT: Vercel's serverless filesystem is READ-ONLY, so this write
+    // fails there. Attempt the write FIRST and only claim success (201) when
+    // it genuinely persisted. This keeps local `npm start` fully working
+    // while production fails honestly with 503 instead of a false account.
+    const users = readDemoUsers();
+    users.push(user);
+    try {
+      writeDemoUsers(users);
+    } catch (error) {
+      // Report honestly instead of faking success.
+      console.error("Demo store write failed:", error.message);
+      return res.status(503).json({
         success: false,
-        message: "An account with this email already exists."
+        demo: true,
+        message:
+          "Demo registration is unavailable on this deployment (read-only storage). No account was created. Please try local development."
       });
     }
 
-    console.error("Registration error:", error.message);
+    setDemoCookie(res, createDemoToken(user, getDemoSecret()));
+
+    return res.status(201).json({
+      success: true,
+      demo: true,
+      message:
+        "Demo registration successful. This is a demo account only, not a permanent account.",
+      user: getSafeUser(user)
+    });
+  } catch (error) {
+    console.error("Demo registration error:", error.message);
 
     return res.status(500).json({
       success: false,
-      message: "Registration failed. Please try again."
+      message: "Demo registration failed. Please try again."
     });
   }
 });
 
 // Login
-app.post("/api/auth/login", ensureDb, async (req, res) => {
+app.post("/api/auth/login", requireDemoSecret, async (req, res) => {
   try {
     const email =
       typeof req.body.email === "string"
@@ -337,13 +360,12 @@ app.post("/api/auth/login", ensureDb, async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email })
-      .select("+password");
+    const user = findDemoUserByEmail(email);
 
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: "Invalid email or password."
+        message: "Invalid email or password (demo accounts only)."
       });
     }
 
@@ -355,108 +377,64 @@ app.post("/api/auth/login", ensureDb, async (req, res) => {
     if (!passwordMatches) {
       return res.status(401).json({
         success: false,
-        message: "Invalid email or password."
+        message: "Invalid email or password (demo accounts only)."
       });
     }
 
-    // Regenerate the session to reduce session-fixation risk.
-    req.session.regenerate((sessionError) => {
-      if (sessionError) {
-        console.error("Session error:", sessionError.message);
+    setDemoCookie(res, createDemoToken(user, getDemoSecret()));
 
-        return res.status(500).json({
-          success: false,
-          message: "Unable to log in. Please try again."
-        });
-      }
-
-      req.session.userId = user._id.toString();
-
-      req.session.save((saveError) => {
-        if (saveError) {
-          console.error("Session save error:", saveError.message);
-
-          return res.status(500).json({
-            success: false,
-            message: "Unable to log in. Please try again."
-          });
-        }
-
-        return res.json({
-          success: true,
-          message: "Login successful.",
-          user: getSafeUser(user)
-        });
-      });
+    return res.json({
+      success: true,
+      demo: true,
+      message: "Demo login successful.",
+      user: getSafeUser(user)
     });
   } catch (error) {
-    console.error("Login error:", error.message);
+    console.error("Demo login error:", error.message);
 
     return res.status(500).json({
       success: false,
-      message: "Login failed. Please try again."
+      message: "Demo login failed. Please try again."
     });
   }
 });
 
-// Get current logged-in user
-app.get("/api/auth/me", ensureDb, requireLogin, async (req, res) => {
+// Get current logged-in demo user
+app.get("/api/auth/me", requireLogin, async (req, res) => {
   try {
-    const user = await User.findById(req.session.userId)
-      .select("name email");
+    const user = findDemoUserById(req.demoUser.sub);
 
     if (!user) {
-      return req.session.destroy(() => {
-        res.status(401).json({
-          success: false,
-          message: "User account not found. Please log in again."
-        });
+      clearDemoCookie(res);
+      return res.status(401).json({
+        success: false,
+        message: "Demo account not found. Please log in again."
       });
     }
 
     return res.json({
       success: true,
+      demo: true,
       user: getSafeUser(user)
     });
   } catch (error) {
-    console.error("User lookup error:", error.message);
+    console.error("Demo user lookup error:", error.message);
 
     return res.status(500).json({
       success: false,
-      message: "Unable to load account details."
+      message: "Unable to load demo account details."
     });
   }
 });
 
 // Logout
 app.post("/api/auth/logout", (req, res) => {
-  if (!req.session) {
-    return res.json({
-      success: true,
-      message: "Logged out."
-    });
-  }
+  clearDemoCookie(res);
 
-  req.session.destroy((error) => {
-    if (error) {
-      console.error("Logout error:", error.message);
-
-      return res.status(500).json({
-        success: false,
-        message: "Unable to log out. Please try again."
-      });
-    }
-
-    res.clearCookie("mahaupdate.sid", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax"
-    });
-
-    return res.json({
-      success: true,
-      message: "Logout successful."
-    });
+  return res.json({
+    success: true,
+    demo: true,
+    message: "Demo logout successful."
   });
 });
 
@@ -467,12 +445,9 @@ app.get("/api/health", (req, res) => {
     success: true,
     website: "MahaUpdate",
     message: "Website server is running!",
-    database:
-      mongoose.connection.readyState === 1
-        ? "connected"
-        : "disconnected",
+    auth: "demo",
+    database: "not-used",
     env: {
-      mongodbUri: process.env.MONGODB_URI ? "configured" : "missing",
       sessionSecret: process.env.SESSION_SECRET
         ? "configured"
         : "missing"
@@ -676,30 +651,18 @@ app.get("/api/news", async (req, res) => {
 });
 
 // ==================== START SERVER ====================
-// Local: connect to MongoDB, then listen on PORT.
-// Vercel: do NOT listen; export `app` and connect lazily per request.
+// DEMO mode: no database. Local (`npm start`) only needs SESSION_SECRET.
+// Vercel: do NOT listen; export `app` via api/index.js.
 
-async function startLocalServer() {
-  if (!process.env.MONGODB_URI) {
-    console.error("MONGODB_URI is missing from .env");
-    process.exit(1);
-  }
-
+function startLocalServer() {
   if (!process.env.SESSION_SECRET) {
     console.error("SESSION_SECRET is missing from .env");
     process.exit(1);
   }
 
-  try {
-    await connectDb();
-
-    app.listen(PORT, () => {
-      console.log(`MahaUpdate running at http://localhost:${PORT}`);
-    });
-  } catch (error) {
-    console.error("MongoDB connection failed:", error.message);
-    process.exit(1);
-  }
+  app.listen(PORT, () => {
+    console.log(`MahaUpdate (demo auth) running at http://localhost:${PORT}`);
+  });
 }
 
 if (require.main === module) {
