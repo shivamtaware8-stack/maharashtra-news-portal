@@ -707,3 +707,5 @@ if (require.main === module) {
 }
 
 module.exports = app;
+// Alias for runtimes/bundlers that look for a `.default` export.
+module.exports.default = app;
